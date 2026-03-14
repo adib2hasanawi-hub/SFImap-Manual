@@ -1,0 +1,53 @@
+# Load Soil Nutrient Raster Maps
+N <- rast("ak_0_30_QRF.tif")
+P <- rast("ap_0_30_QRF.tif")
+K <- rast("total_N_0_30_QRF.tif")
+
+plot(N)
+plot(P)
+plot(K)
+
+#Stack Raster Layers
+nutrients <- c(N, P, K)
+names(nutrients) <- c("N", "P", "K")
+
+#Normalize nutrient values
+normalize <- function(x) {
+  
+  min_val <- global(x, "min", na.rm=TRUE)[[1]]
+  max_val <- global(x, "max", na.rm=TRUE)[[1]]
+  
+  (x - min_val) / (max_val - min_val)
+}
+
+N_norm <- normalize(N)
+P_norm <- normalize(P)
+K_norm <- normalize(K)
+
+#Calculate Soil Fertility Index (SFI)
+SFI <- (N_norm + P_norm + K_norm) / 3
+
+plot(SFI, main="Soil Fertility Index")
+
+# Classify fertility zones
+fertility_zones <- classify(SFI,
+                            rcl = matrix(c(
+                             0,0.25,1,
+                              0.25,0.50,2,
+                              0.50,0.75,3,
+                              0.75,0.90,4,
+                             0.90,1,5
+                            ),
+                           ncol=3,
+                            byrow=TRUE))
+levels(fertility_zones) <- data.frame(
+  ID=c(1,2,3,4,5),
+  Fertility=c("Very Low", "Low", "Moderate", "High", "Very High")
+)
+
+Plot 
+plot(fertility_zones, main="Soil Fertility Zones")
+
+writeRaster(fertility_zones,
+            "fertility_zones.tif",
+            overwrite=TRUE)
