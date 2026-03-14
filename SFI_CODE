@@ -1,0 +1,121 @@
+#Soil Fertility Index
+
+install.packages("terra")
+
+library(terra)
+library(ggplot2)
+library(sf)
+library(ranger)
+library (readr)
+library(caret)
+library(tidyverse)
+library(dplyr)
+library(mapview)
+
+setwd("D:/ADIB/Digital-Soil-Mapping_Kalimantan/02-Outputs/maps")
+
+# Load Soil Nutrient Raster Maps
+N <- rast("ak_0_30_QRF.tif")
+P <- rast("ap_0_30_QRF.tif")
+K <- rast("total_N_0_30_QRF.tif")
+
+plot(N, main="Soil Total Nitrogen", xlab="longitude", ylab="latitude")
+plot(P, main="Soil Phosphorus", xlab="longitude", ylab="latitude")
+plot(K, main="Soil Potassium", xlab="longitude", ylab="latitude")
+
+#Stack Raster Layers
+nutrients <- c(N, P, K)
+names(nutrients) <- c("N", "P", "K")
+
+#Normalize nutrient values
+normalize <- function(x) {
+  
+  min_val <- global(x, "min", na.rm=TRUE)[[1]]
+  max_val <- global(x, "max", na.rm=TRUE)[[1]]
+  
+  (x - min_val) / (max_val - min_val)
+}
+
+N_norm <- normalize(N)
+P_norm <- normalize(P)
+K_norm <- normalize(K)
+
+#Calculate Soil Fertility Index (SFI)
+SFI <- (N_norm + P_norm + K_norm) / 3
+
+plot(SFI, main="Soil Fertility Index", xlab="longitude", ylab="latitude")
+writeRaster(SFI,
+            "SFI.tif",
+            overwrite=TRUE)
+# Classify fertility zones
+fertility_zones <- classify(SFI,
+                            rcl = matrix(c(
+                             0,0.25,1,
+                              0.25,0.50,2,
+                              0.50,0.75,3,
+                              0.75,0.90,4,
+                             0.90,1,5
+                            ),
+                           ncol=3,
+                            byrow=TRUE))
+levels(fertility_zones) <- data.frame(
+  ID=c(1,2,3,4,5),
+  Fertility=c("Very Low", "Low", "Moderate", "High", "Very High")
+)
+
+Plot 
+plot(fertility_zones, main="Soil Fertility Zones", xlab="longitude", ylab="latitude")
+
+writeRaster(fertility_zones,
+            "fertility_zones.tif",
+            overwrite=TRUE)
+
+#Accuracy Data
+fertility_map <-rast("SFI.tif")
+
+samples <- read_sf("validation_samples.xlsx")
+
+samples_vect <- vect(samples,
+                     geom=c("x","y"),
+                     crs=crs(fertility_map))
+
+fert_pred <- terra::extract(fertility_map, samples_vect)
+samples$fert_pred <- fert_pred[,2]
+
+obs <- samples$SFI_Index
+pred <- samples$fert_pred
+obs  <- suppressWarnings(as.numeric(as.character(samples$SFI_Index)))
+pred <- suppressWarnings(as.numeric(as.character(samples$fert_pred)))
+
+RMSE <- sqrt(mean((obs - pred)^2, na.rm=TRUE))
+MAE  <- mean(abs(obs - pred), na.rm=TRUE)
+R2   <- cor(obs, pred, use="complete.obs")^2
+
+RMSE
+MAE
+R2
+
+
+# Nicer Visualitazion
+# limiting <- which.min(c(N, P, K))
+# 
+# limiting_map <- app(nutrients, which.min)
+# 
+# plot(limiting_map,
+#      col=c("red","blue","green"),
+#      main="Limiting Nutrient Map")
+# 
+# legend("topright",
+#        legend=c("N-limited","P-limited","K-limited"),
+#        fill=c("red","blue","green"))
+# 
+# 
+# fert_df <- as.data.frame(fertility_zones, xy=TRUE)
+# 
+# ggplot(fert_df) +
+#   geom_raster(aes(x=x, y=y, fill=factor(fertility_zones))) +
+#   scale_fill_manual(values=c("yellow","orange","darkgreen"),
+#                     name="Fertility Zone",
+#                     labels=c("Low","Moderate","High")) +
+#   coord_equal() +
+#   theme_minimal()
